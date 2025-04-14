@@ -1,0 +1,26 @@
+body {
+  font-family: sans-serif;
+  padding: 10px;
+  min-width: 300px;
+}
+
+#options-form label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+#options-form input[type="password"] {
+  width: calc(100% - 12px); /* Adjust width considering padding/border */
+  padding: 5px;
+  margin-bottom: 10px;
+}
+
+#options-form button {
+  padding: 8px 15px;
+  cursor: pointer;
+}
+
+#status {
+  margin-top: 10px;
+  font-weight: bold;
+} 

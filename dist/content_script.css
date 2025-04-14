@@ -1,0 +1,38 @@
+/* Style for the floating button injected by the content script */
+#extension-floating-button {
+  background-color: var(--accent-primary, #4fc3f7); /* Use variable with fallback */
+  color: var(--bg-primary, #1e1e1e); /* Use variable with fallback */
+  border: none;
+  border-radius: 50%; /* Make it round */
+  padding: 6px; /* Adjust padding for a round button */
+  width: 32px; /* Fixed width for round button */
+  height: 32px; /* Fixed height for round button */
+  font-size: 16px; /* SVG size is controlled inline, but set base */
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  display: flex; /* Center SVG */
+  align-items: center;
+  justify-content: center;
+  line-height: 0; /* Prevent text line height issues */
+}
+
+#extension-floating-button:hover {
+  background-color: var(--accent-secondary, #00bcd4); /* Use variable with fallback */
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.4);
+}
+
+#extension-floating-button svg {
+  width: 16px; /* Control icon size */
+  height: 16px;
+  fill: currentColor; /* Inherit color from button */
+}
+
+/* Fallback definitions if CSS variables don't propagate (less likely with MiniCssExtractPlugin) */
+:root {
+  --accent-primary: #4fc3f7;
+  --accent-secondary: #00bcd4;
+  --bg-primary: #1e1e1e;
+}
+
+/* Add any other styles needed */

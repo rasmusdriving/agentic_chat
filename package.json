@@ -1,0 +1,28 @@
+{
+  "name": "audio-transcriber-groq",
+  "version": "0.1.0",
+  "description": "Chrome extension to transcribe audio files using Groq API",
+  "private": true,
+  "scripts": {
+    "dev": "webpack --watch --mode development --config webpack.config.js",
+    "build": "webpack --mode production --config webpack.config.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.12.12",
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.0",
+    "mini-css-extract-plugin": "^2.9.2",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.93.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@types/marked": "^5.0.2",
+    "marked": "^15.0.8"
+  }
+}

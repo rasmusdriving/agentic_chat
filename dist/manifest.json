@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Audio Transcriber (Groq)",
+  "version": "0.1.0",
+  "description": "Transcribes downloaded audio files using the Groq API.",
+  "permissions": [
+    "downloads",
+    "storage",
+    "offscreen",
+    "scripting",
+    "contextMenus",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "*://*.zendesk.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_script.js"],
+      "css": ["content_script.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "offscreen.html",
+        "icons/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://api.groq.com https://*.zendesk.com;"
+  }
+} 

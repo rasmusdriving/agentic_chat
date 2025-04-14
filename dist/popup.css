@@ -1,0 +1,454 @@
+/* --- Base Styles & Reset --- */
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #2a2a2a;
+  --bg-tertiary: #333333;
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaaaaa;
+  --accent-primary: #4fc3f7; /* Light blue */
+  --accent-secondary: #00bcd4; /* Cyan */
+  --error-color: #f44336;
+  --warning-color: #ff9800;
+  --border-color: #444444;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 15px;
+  --padding-sm: 5px;
+  --padding-md: 10px;
+  --padding-lg: 15px;
+  --gap: 10px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  padding: var(--padding-lg);
+  min-width: 550px;
+  min-height: 450px; /* Slightly increased default height */
+  max-width: 700px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* Use viewport height */
+  overflow: hidden; /* Prevent body scroll */
+}
+
+/* --- Layout Components --- */
+
+#header {
+  padding-bottom: var(--padding-md);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: var(--padding-md);
+  flex-shrink: 0;
+  display: flex; /* Align label and select */
+  align-items: center;
+  gap: var(--gap);
+}
+
+#header label {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+}
+
+#chat-container {
+  flex-grow: 1;
+  overflow-y: auto;
+  margin-bottom: var(--padding-md);
+  /* Remove border, padding handled by messages */
+  padding: var(--padding-sm) var(--padding-md); /* Add padding for messages */
+}
+
+#chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+#input-area {
+  display: flex;
+  align-items: flex-end;
+  padding-top: var(--padding-md);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  gap: var(--gap);
+}
+
+#transcription-container {
+  padding: var(--padding-md);
+  border: 1px solid var(--border-color);
+  margin-top: var(--padding-md);
+  border-radius: var(--border-radius-sm);
+  flex-shrink: 0;
+  background-color: var(--bg-secondary);
+}
+
+#status-messages {
+  padding: var(--padding-sm);
+  font-size: 0.9em;
+  flex-shrink: 0;
+  text-align: center;
+  margin-top: auto; /* Push status to bottom if space allows */
+}
+
+/* --- UI Elements --- */
+
+button {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border: none;
+  padding: var(--padding-sm) var(--padding-md);
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+button:hover {
+  background-color: var(--accent-secondary);
+}
+
+button:disabled {
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+}
+
+select,
+textarea {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: var(--padding-sm);
+  border-radius: var(--border-radius-sm);
+  font-family: inherit;
+  font-size: 1em;
+}
+
+textarea {
+  flex-grow: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px; /* Slightly reduced max height */
+  overflow-y: auto;
+}
+
+select {
+    flex-grow: 1; /* Allow select to take available space */
+    max-width: 250px; /* Prevent it from becoming too wide */
+}
+
+/* Style for the new reset chat button */
+#reset-chat-button {
+    background-color: transparent;
+    border: none;
+    padding: 3px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    margin-left: auto; /* Add this to push it to the far right */
+    flex-shrink: 0; /* Prevent shrinking */
+    display: flex; /* Align SVG nicely */
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+#reset-chat-button:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+#reset-chat-button svg {
+    width: 16px;
+    height: 16px;
+    display: block; /* Remove extra space below SVG */
+}
+
+pre {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  padding: var(--padding-md);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 100px;
+  overflow-y: auto;
+  text-align: left;
+  margin-bottom: 0;
+  color: var(--text-primary);
+  border-radius: var(--border-radius-sm);
+  font-family: monospace;
+}
+
+/* --- Specific Element Styles --- */
+
+.message {
+  padding: var(--padding-sm) var(--padding-md);
+  border-radius: var(--border-radius-lg);
+  max-width: 80%; /* Slightly increase max width */
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.user-message {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  align-self: flex-end;
+  border-bottom-right-radius: var(--border-radius-sm);
+}
+
+.ai-message {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  align-self: flex-start;
+  border-bottom-left-radius: var(--border-radius-sm);
+}
+
+/* Style for error messages shown within chat */
+.error-message-chat {
+    background-color: transparent; /* No background bubble */
+    color: var(--error-color);
+    align-self: center; /* Center error messages */
+    font-style: italic;
+    font-size: 0.9em;
+    max-width: 90%;
+}
+
+#input-area button#send-button {
+  height: 40px;
+  min-width: 60px; /* Ensure send button has minimum width */
+}
+
+#image-preview-area {
+  position: relative;
+  /* margin-right: var(--padding-sm); Removed, gap handles spacing */
+  border: 1px solid var(--border-color);
+  padding: 2px;
+  border-radius: var(--border-radius-sm);
+  background-color: var(--bg-secondary);
+  align-self: flex-end; /* Align with bottom of text area */
+}
+
+#image-preview {
+  max-height: 36px;
+  max-width: 50px;
+  display: block;
+  border-radius: 2px;
+}
+
+#remove-image-button {
+  position: absolute;
+  top: -10px; /* Adjust position */
+  right: -10px;
+  background-color: var(--error-color);
+  color: white;
+  border: 2px solid var(--bg-primary); /* Make border match background */
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 16px; /* Adjust line height */
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+  font-weight: bold;
+}
+
+#transcription-container h2 {
+  margin-top: 0;
+  font-size: 1.1em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+#transcription-request p,
+#transcription-result {
+    margin-bottom: 0;
+}
+
+#transcription-request button {
+    margin-right: var(--padding-sm); /* Space buttons */
+}
+
+#loading-indicator p,
+#initial-message p {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* General Error & Status Messages */
+#error-message p {
+  color: var(--error-color);
+  font-weight: bold;
+  margin-bottom: var(--padding-sm);
+}
+#no-key-message p {
+  color: var(--warning-color);
+  font-weight: bold;
+   margin-bottom: var(--padding-sm);
+}
+
+#error-message button,
+#no-key-message button {
+    font-size: 0.9em;
+    padding: 4px 8px;
+    margin-left: var(--padding-md);
+}
+
+/* Custom Scrollbar for Dark Mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm);
+  border: 2px solid var(--bg-primary); /* Create padding */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-color);
+}
+
+/* Adjustments for focused elements */
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(79, 195, 247, 0.3);
+}
+
+#filename {
+    font-weight: bold;
+}
+
+#transcription-details {
+    margin-bottom: var(--padding-md);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    overflow: hidden; /* Ensure content respects border radius */
+}
+
+#transcription-details summary {
+    padding: var(--padding-sm) var(--padding-md);
+    cursor: pointer;
+    outline: none; /* Remove default focus outline */
+    color: var(--text-secondary);
+    font-weight: 600;
+    background-color: var(--bg-tertiary); /* Slightly different background for summary */
+    border-bottom: 1px solid var(--border-color); /* Separator when open */
+    transition: background-color 0.2s ease;
+}
+
+#transcription-details summary:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+#transcription-details[open] summary {
+    border-bottom: 1px solid var(--border-color);
+}
+
+#transcription-details pre#transcription-text {
+    border: none; /* Remove border from pre inside details */
+    margin-bottom: 0;
+    max-height: 200px; /* Allow more height when opened */
+    border-radius: 0 0 var(--border-radius-sm) var(--border-radius-sm); /* Match container */
+}
+
+#transcription-actions {
+    display: flex;
+    gap: var(--gap);
+    margin-top: var(--padding-md);
+}
+
+#transcription-actions button {
+    flex-grow: 1; /* Make buttons share space */
+    font-size: 0.9em;
+    padding: var(--padding-sm);
+}
+
+/* Basic Markdown Styles for Chat */
+.ai-message p {
+  margin-bottom: 0.5em; /* Spacing between paragraphs */
+}
+.ai-message p:last-child {
+  margin-bottom: 0;
+}
+.ai-message ul, .ai-message ol {
+  margin-left: 1.5em; /* Indent lists */
+  margin-bottom: 0.5em;
+}
+.ai-message li {
+  margin-bottom: 0.2em;
+}
+.ai-message code {
+  background-color: var(--bg-primary); /* Slightly darker background for inline code */
+  padding: 0.2em 0.4em;
+  border-radius: var(--border-radius-sm);
+  font-size: 0.9em;
+  font-family: monospace;
+}
+.ai-message pre {
+  background-color: var(--bg-primary); /* Match inline code */
+  padding: var(--padding-md);
+  border-radius: var(--border-radius-sm);
+  margin-bottom: 0.5em;
+  overflow-x: auto; /* Allow scrolling for long code blocks */
+  max-height: 200px; /* Limit height of code blocks */
+}
+.ai-message pre code {
+  background-color: transparent; /* Code within pre doesn't need background */
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+.ai-message strong {
+    font-weight: bold;
+}
+.ai-message em {
+    font-style: italic;
+}
+
+/* Glowing effect for textarea when context is active */
+#chat-input.glow {
+  box-shadow: 0 0 8px 2px rgba(0, 123, 255, 0.7); /* Example blue glow */
+  border-color: rgba(0, 123, 255, 0.7);
+  transition: box-shadow 0.3s ease-in-out, border-color 0.3s ease-in-out;
+}
+
+/* Style for user messages sent with context */
+.user-message.with-context {
+  /* Add a subtle indicator, e.g., slightly different background or border */
+  border-bottom: 3px solid var(--accent-secondary); /* Example: Accent border bottom */
+  /* Or maybe:
+  background-color: #3a6c9e; /* Slightly different blue */
+  /* */
+}
+
+/* Style for user messages */
+.user-message {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  align-self: flex-end;
+  border-bottom-right-radius: var(--border-radius-sm);
+}
+
+.ai-message.context {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  align-self: flex-start;
+  border-bottom-left-radius: var(--border-radius-sm);
+} 
