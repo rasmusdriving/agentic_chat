@@ -41,20 +41,22 @@ function showFloatingButton(range: Range) {
     e.stopPropagation(); // Prevent click from bubbling up
     console.log("Floating button clicked. Sending text:", selectedText);
     if (selectedText) {
-       chrome.runtime.sendMessage({
-         action: "setSelectedText",
-         payload: { text: selectedText }
-       })
-       .then(() => {
-         console.log("Message sent to background with selected text.");
-         // Optionally, send a message to OPEN the popup here,
-         // but usually, the background script handles this better or
-         // the user opens it manually after clicking.
-         // chrome.runtime.sendMessage({ action: 'openPopup' });
-       })
-       .catch(error => {
-         console.error("Error sending selected text message:", error);
-       });
+      if (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.sendMessage === "function") {
+        chrome.runtime.sendMessage({
+          action: "setSelectedText",
+          payload: { text: selectedText }
+        })
+        .then(() => {
+          console.log("Message sent to background with selected text.");
+        })
+        .catch(error => {
+          console.error("Error sending selected text message:", error);
+        });
+      } else {
+        // Show a user-friendly error if extension APIs are not available
+        alert("Sorry, the extension cannot access this page's context. Please try on a different page or domain.");
+        console.warn("chrome.runtime.sendMessage is not available in this context.");
+      }
     }
     removeFloatingButton(); // Remove button after click
   };
