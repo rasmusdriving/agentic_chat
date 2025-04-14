@@ -16,6 +16,7 @@ console.log("Background service worker started.");
 
 const SUPPORTED_MIME_TYPES = [
     'audio/mpeg', // mp3
+    'audio/mp3',  // Add mp3 explicitly
     'audio/mp4', // mp4, m4a
     'audio/ogg', // ogg
     'audio/wav', // wav
@@ -42,6 +43,24 @@ const EXT_TO_MIME_TYPE: { [key: string]: string } = {
     '.mpeg': 'audio/mpeg', // Added based on SUPPORTED_EXTENSIONS
     '.mpga': 'audio/mpeg'  // Added based on SUPPORTED_EXTENSIONS
 };
+
+// Create a reverse map for getting extension from MIME type
+const MIME_TO_EXT_TYPE: { [key: string]: string } = Object.entries(EXT_TO_MIME_TYPE)
+    .reduce((acc, [ext, mime]) => {
+        // Prioritize common extensions for ambiguous MIME types (e.g., audio/mpeg -> .mp3)
+        if (mime === 'audio/mpeg' && !acc[mime]) {
+            acc[mime] = '.mp3';
+        } else if (mime === 'audio/mp4' && !acc[mime]) {
+             acc[mime] = '.m4a'; // Or .mp4, .m4a is common for audio-only
+        } else if (!acc[mime]) { // Assign if not already set
+            acc[mime] = ext;
+        }
+        return acc;
+    }, {} as { [key: string]: string });
+// Add explicit audio/mp3 mapping if not covered
+MIME_TO_EXT_TYPE['audio/mp3'] = '.mp3'; 
+
+console.log("MIME to Extension Map:", MIME_TO_EXT_TYPE);
 
 // Define the path relative to the extension's root directory
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
@@ -407,6 +426,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 console.log(`[Background] Received audioDataFetched for downloadId: ${message.downloadId}`);
                 
                 let audioBuffer: ArrayBuffer | null = null;
+                const fetchedContentType = message.contentType; // <<< Get content type from message
+                console.log(`[Background] Content-Type from offscreen: ${fetchedContentType}`);
 
                 // Check if data is Base64 encoded
                 if (message.isBase64 && typeof message.data === 'string') {
@@ -441,7 +462,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                 // Process only if we successfully got an ArrayBuffer
                 if (audioBuffer) {
-                    processAudioData(message.downloadId, audioBuffer); // Pass the decoded ArrayBuffer
+                    processAudioData(message.downloadId, audioBuffer, fetchedContentType); // Pass the decoded ArrayBuffer and fetchedContentType
                 } else {
                     console.error("[Background] Cannot process audio data due to decoding failure or invalid data format.");
                     // Update state to show an error
@@ -491,6 +512,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleTranscriptionRequest(downloadId: number) {
     console.log(`Handling transcription request for download ID: ${downloadId}`);
+
+    // <<< Open popup first
+    chrome.action.openPopup({}, () => {
+        if (chrome.runtime.lastError) {
+            console.warn(`[Background] Could not open popup programmatically: ${chrome.runtime.lastError.message}. User might need to click the icon.`);
+        } else {
+            console.log("[Background] Popup opened programmatically for transcription request.");
+        }
+    });
 
     try {
         // 1. Get API Key
@@ -550,8 +580,8 @@ async function handleTranscriptionRequest(downloadId: number) {
 
 // --- Groq API Call & Processing Logic ---
 
-async function processAudioData(downloadId: number, audioData: ArrayBuffer) {
-    console.log(`Processing fetched audio data for downloadId ${downloadId} (${audioData.byteLength} bytes).`);
+async function processAudioData(downloadId: number, audioData: ArrayBuffer, fetchedContentType?: string | null) {
+    console.log(`Processing fetched audio data for downloadId ${downloadId} (${audioData.byteLength} bytes). Content-Type from fetch: ${fetchedContentType}`);
 
     let apiKey = '';
     let filename = 'audio_file'; // Default filename for Blob
@@ -568,8 +598,8 @@ async function processAudioData(downloadId: number, audioData: ArrayBuffer) {
         // Use original filename and MIME type if available
         if (pendingDownload && pendingDownload.downloadId === downloadId) {
             filename = pendingDownload.filename || filename; // Use original or default
-            mimeType = pendingDownload.mime; // Get the MIME type
-            console.log(`Retrieved filename: ${filename}, MIME type: ${mimeType}`);
+            mimeType = pendingDownload.mime; // Get the MIME type from storage first
+            console.log(`Retrieved filename: ${filename}, MIME type from storage: ${mimeType}`);
         } else {
              console.warn(`Could not retrieve original details for downloadId ${downloadId}. Using defaults.`);
              // Attempt to retrieve details matching the ID as a fallback
@@ -579,6 +609,12 @@ async function processAudioData(downloadId: number, audioData: ArrayBuffer) {
                 mimeType = items[0].mime; // Try to get MIME type from download item
                  console.log(`Fallback retrieved filename: ${filename}, MIME type: ${mimeType}`);
              }
+        }
+
+        // <<< Prioritize fetchedContentType if available
+        if (fetchedContentType && typeof fetchedContentType === 'string') {
+            console.log(`Using Content-Type directly from fetch response: ${fetchedContentType}`);
+            mimeType = fetchedContentType;
         }
 
         // Check file size BEFORE making the API call
@@ -620,18 +656,22 @@ async function processAudioData(downloadId: number, audioData: ArrayBuffer) {
         // Prepare FormData
         const formData = new FormData();
 
-        // Extract base filename
-        let baseFilename = 'audio_file'; // Default
-        if (filename) {
-            // Simple extraction, handles both / and \ separators
-            baseFilename = filename.substring(filename.lastIndexOf('/') + 1);
-            baseFilename = baseFilename.substring(baseFilename.lastIndexOf('\\') + 1);
-            console.log(`Using base filename: ${baseFilename}`);
+        // --- Construct filename with correct extension for API --- <<< MODIFIED
+        let filenameForApi = 'audio_file'; // Default
+        const expectedExtension = MIME_TO_EXT_TYPE[mimeType];
+        if (expectedExtension) {
+            // Use a generic name + correct extension
+            filenameForApi = `api_upload${expectedExtension}`;
+            console.log(`Using filename for API based on MIME type: ${filenameForApi}`);
         } else {
-            console.log("Using default filename: audio_file");
+            // Fallback: use original filename if it exists, otherwise the default
+            filenameForApi = filename ? filename.substring(filename.lastIndexOf('/') + 1).substring(filename.lastIndexOf('\\') + 1) : 'audio_file.bin';
+            console.warn(`Could not map MIME type '${mimeType}' to extension. Using filename: ${filenameForApi}`);
         }
+        // --- END MODIFICATION ---
 
-        formData.append('file', audioBlob, baseFilename); // Use the extracted base filename
+        // formData.append('file', audioBlob, baseFilename); // Use the extracted base filename << OLD
+        formData.append('file', audioBlob, filenameForApi); // <<< Use filename with extension
         formData.append('model', 'whisper-large-v3-turbo'); // Revert to turbo model as per user example
         // Add other parameters like language if needed
         // formData.append('language', 'en');
@@ -703,52 +743,145 @@ console.log("Background script listeners attached.");
 
 // --- Context Menu Setup ---
 
-const CONTEXT_MENU_ID = "transcribeAudioLink";
+const CONTEXT_MENU_ID = "transcribeAudio"; // Renamed for clarity
 
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: CONTEXT_MENU_ID,
-        title: "Transcribe Audio Link from Clipboard",
-        contexts: ["page", "selection", "link", "audio", "video"] // Show on various contexts
+        title: "Transcribe Audio", // Updated title
+        contexts: ["link", "audio", "video", "page", "selection"] // Keep contexts broad, but prioritize link/audio/video
     });
-    console.log("Context menu created.");
+    console.log("Context menu created/updated.");
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === CONTEXT_MENU_ID) {
-        console.log("'Transcribe Audio Link from Clipboard' context menu clicked.");
-        handleTranscribeFromClipboard();
+        const directUrl = info.linkUrl || info.srcUrl; // Check for direct link or media source URL
+
+        if (directUrl) {
+            console.log(`'Transcribe Audio' context menu clicked. Direct URL found: ${directUrl}`);
+            // Validate URL basic structure before proceeding (simple check)
+            try {
+                new URL(directUrl); // Throws if invalid
+                handleTranscribeFromUrl(directUrl); // Use the new function for direct URLs
+            } catch (e) {
+                console.error(`Invalid URL detected from context menu: ${directUrl}`, e);
+                 chrome.storage.local.set({ transcriptionState: 'error', transcriptionError: `Invalid URL provided: ${directUrl}` }).then(() => {
+                    chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open?"));
+                });
+            }
+        } else {
+            console.log("'Transcribe Audio' context menu clicked. No direct URL found, attempting clipboard read.");
+            initiateClipboardReadForTranscription(); // Fallback to clipboard reading
+        }
     }
 });
 
+// --- Shared Helper for URL Processing ---
+
+// Extracts filename from URL path
+function getFilenameFromUrl(url: string): string {
+    try {
+        const parsedUrl = new URL(url);
+        const pathname = parsedUrl.pathname;
+        const parts = pathname.split('/');
+        const lastPart = parts[parts.length - 1];
+        // Basic decode and fallback
+        return lastPart ? decodeURIComponent(lastPart) : `audio_${Date.now()}.unknown`;
+    } catch (e) {
+        console.warn(`Could not parse filename from URL: ${url}`, e);
+        return `audio_${Date.now()}.unknown`;
+    }
+}
+
+// Prepares storage for a URL-based transcription
+async function preparePendingUrlDownload(url: string, source: 'direct' | 'clipboard'): Promise<number> {
+     console.log(`Preparing pending download for URL from ${source}: ${url}`);
+     const filename = getFilenameFromUrl(url);
+     const downloadId = Date.now(); // Use timestamp as a temporary unique ID for URLs
+
+     try {
+         await chrome.storage.local.set({
+             pendingDownload: {
+                 downloadId: downloadId,
+                 filename: filename,
+                 url: url,
+                 fileSize: null, // Size unknown until fetched
+                 mime: null, // Mime unknown until fetched/inferred
+                 isUrlSource: true // Flag indicating this came from a URL
+             },
+             transcriptionState: 'pending_user_action', // Ready for user confirmation
+             transcriptionResult: null,
+             transcriptionError: null
+         });
+         console.log(`Stored pending URL download (ID: ${downloadId}) for: ${filename}`);
+         chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open or listening?"));
+
+         // Close offscreen only if initiated via clipboard and successful here
+         // (Direct URL clicks don't use offscreen at this stage)
+         if (source === 'clipboard') {
+             console.log("URL processing via clipboard successful, closing offscreen document.")
+             await closeOffscreenDocument(); // Close after successful clipboard processing
+         }
+
+         return downloadId; // <<< Return the ID
+
+     } catch (error) {
+        console.error(`Error setting up storage for URL transcription (${source}):`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Error preparing URL for transcription.';
+        await chrome.storage.local.set({ transcriptionState: 'error', transcriptionError: errorMessage });
+        chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open?"));
+        // Do not close offscreen here on error during clipboard flow, let other error handlers manage it
+        throw error; // <<< Re-throw error so callers know it failed
+     }
+}
+
+
 // --- Clipboard & URL Handling Logic ---
 
-async function handleTranscribeFromClipboard() {
-    console.log("Handling transcribe from clipboard request...");
+// Renamed from handleTranscribeFromClipboard
+async function initiateClipboardReadForTranscription() {
+    console.log("Initiating transcription via clipboard read...");
     try {
         // 1. Ensure Offscreen Document is ready
         await setupOffscreenDocument(OFFSCREEN_DOCUMENT_PATH);
 
         // 2. Send message to Offscreen Document to read the clipboard
         console.log("Sending read-clipboard request to offscreen document.");
+        // Reset state before asking offscreen doc, in case user clicks multiple times
+        await chrome.storage.local.remove(['pendingDownload', 'transcriptionState', 'transcriptionResult', 'transcriptionError']);
         await chrome.runtime.sendMessage({
             target: 'offscreen',
             type: 'read-clipboard'
         });
-
-        // The rest of the process continues when the 'clipboardDataResponse' message is received
-        // (This message handler will be added below)
+        // Response handled by 'clipboardDataResponse'/'clipboardReadError' messages
 
     } catch (error: any) {
         console.error("Error initiating clipboard read via offscreen:", error);
         const errorMessage = error instanceof Error ? error.message : 'Failed to initiate clipboard reading.';
         await chrome.storage.local.set({ transcriptionState: 'error', transcriptionError: errorMessage });
         chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open?"));
-        // closeOffscreenDocument(); // <<< REMOVE THIS LINE
+        // Don't close offscreen here, might not be open or might be needed by another process
     }
 }
 
-// Function to process the clipboard content received from the offscreen document
+// New function to handle transcription directly from a context menu URL click
+async function handleTranscribeFromUrl(url: string) {
+    console.log(`Handling direct transcription request for URL: ${url}`);
+    try {
+        // Prepare storage and get the temporary ID
+        const downloadId = await preparePendingUrlDownload(url, 'direct');
+        // Directly start the transcription process
+        console.log(`Immediately starting transcription for direct URL, ID: ${downloadId}`);
+        await handleTranscriptionRequest(downloadId);
+    } catch (error) {
+        // Errors during preparePendingUrlDownload are logged and stored within that function
+        console.error(`Error setting up or starting transcription from direct URL ${url}:`, error);
+        // No need to repeat error setting here as preparePendingUrlDownload handles it.
+    }
+}
+
+
 async function processClipboardContent(clipboardText: string | null) {
      if (!clipboardText) {
         console.log("Clipboard is empty or could not be read.");
@@ -775,64 +908,23 @@ async function processClipboardContent(clipboardText: string | null) {
 
     console.log("Valid URL found in clipboard:", url.href);
 
-    // --- Next Steps (Placeholder) ---
-    try {
-        console.log(`Fetching HEAD for ${url.href}`);
-        const headResponse = await fetch(url.href, { method: 'HEAD' });
+    // --- Start transcription process ---
+    try { // <<< Add try block here
+         console.log("Valid URL format detected in clipboard. Preparing storage and starting transcription...");
+         const downloadId = await preparePendingUrlDownload(url.href, 'clipboard');
+         console.log(`Immediately starting transcription for clipboard URL, ID: ${downloadId}`);
+         await handleTranscriptionRequest(downloadId);
+         // Success: offscreen document closed inside preparePendingUrlDownload
 
-        if (!headResponse.ok) {
-            throw new Error(`HEAD request failed: ${headResponse.status} ${headResponse.statusText}`);
+    } catch (error: any) { // <<< Keep the existing catch block
+        console.error("Error during URL validation or transcription initiation from clipboard:", error);
+        // Check if the error originated from preparePendingUrlDownload, which already sets state
+        if (!(error instanceof Error && error.message.includes('Error preparing URL'))) {
+             // If error is from handleTranscriptionRequest or elsewhere, set error state
+             const errorMessage = error instanceof Error ? error.message : 'Error starting transcription from clipboard URL.';
+             await chrome.storage.local.set({ transcriptionState: 'error', transcriptionError: errorMessage });
+             chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open?"));
         }
-
-        const contentType = headResponse.headers.get('content-type')?.split(';')[0].trim(); // Get MIME type
-        const contentLength = headResponse.headers.get('content-length');
-        const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
-
-        console.log(`HEAD response - Content-Type: ${contentType}, Size: ${fileSize} bytes`);
-
-        // 2. Validate Content-Type and Size
-        const isSupportedMime = contentType && SUPPORTED_MIME_TYPES.includes(contentType);
-        const isSizeOk = fileSize > 0 && fileSize <= MAX_FILE_SIZE_BYTES;
-
-        if (!isSupportedMime) {
-             throw new Error(`Unsupported audio format (MIME: ${contentType || 'unknown'}). Supported types: ${SUPPORTED_MIME_TYPES.join(', ')}`);
-        }
-        if (!isSizeOk) {
-             throw new Error(`Audio file size (${fileSize} bytes) is too large or unknown. Max: ${MAX_FILE_SIZE_BYTES} bytes.`);
-        }
-
-        // 3. Extract a filename (best effort)
-        let filename = url.pathname.substring(url.pathname.lastIndexOf('/') + 1) || 'audio_from_url';
-        filename = decodeURIComponent(filename); // Decode URL encoding
-
-        // 4. Store URL info similar to pendingDownload
-         console.log("Storing pending URL information...");
-         await chrome.storage.local.set({
-             pendingDownload: { // Re-use the pendingDownload structure
-                 downloadId: Date.now(), // Use timestamp as a temporary unique ID for URLs
-                 filename: filename,
-                 url: url.href,
-                 fileSize: fileSize,
-                 mime: contentType, // Store the confirmed MIME type
-                 isUrlSource: true // Flag to indicate this came from a URL
-             },
-             transcriptionState: 'pending_user_action', // Ready for user confirmation
-             transcriptionResult: null,
-             transcriptionError: null
-         });
-
-         // 5. Notify popup to update its state
-         chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open or listening?"));
-
-         // --- Close offscreen only on full success --- <<<
-         console.log("URL processing successful, closing offscreen document.")
-         closeOffscreenDocument(); // <<< Will call the stub
-
-    } catch (error: any) {
-        console.error("Error during HEAD request or processing URL info:", error);
-        const errorMessage = error instanceof Error ? error.message : 'Error validating audio URL.';
-        await chrome.storage.local.set({ transcriptionState: 'error', transcriptionError: errorMessage });
-        chrome.runtime.sendMessage({ action: 'updatePopupState' }).catch(e => console.log("Popup not open?"));
-        // <<< NOTE: No closeOffscreenDocument() here on error
+        // Do not close offscreen here; it should only be closed on success in preparePendingUrlDownload for clipboard flow
     }
 } 

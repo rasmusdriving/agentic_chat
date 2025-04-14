@@ -49,8 +49,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         switch (message.type) {
             case 'fetch-audio-data':
                 (async () => {
+                    let url: string | undefined;
+                    let downloadId: number | undefined;
                     try {
-                        const { url, downloadId } = message.data;
+                        url = message.data?.url;
+                        downloadId = message.data?.downloadId;
                         logToOffscreen(`Received fetch-audio-data request for URL: ${url}, Download ID: ${downloadId}`);
                         if (!url || downloadId === undefined) {
                             const errorMsg = "Fetch request missing URL or downloadId";
@@ -65,8 +68,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             return;
                         }
 
-                        const arrayBuffer = await handleFetchAudioData(url, downloadId);
-                        logToOffscreen(`Fetch successful for Download ID: ${downloadId}. Converting to Base64.`);
+                        // Fetch and get content type
+                        const { arrayBuffer, contentType } = await handleFetchAudioData(url, downloadId);
+                        logToOffscreen(`Fetch successful for Download ID: ${downloadId}. Content-Type: ${contentType}. Converting to Base64.`);
                         
                         // Convert to Base64 before sending
                         const base64Data = arrayBufferToBase64(arrayBuffer);
@@ -76,18 +80,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             target: 'background',
                             action: 'audioDataFetched',
                             data: base64Data,
+                            contentType: contentType, // Include the detected content type
                             isBase64: true,
                             downloadId: downloadId
                         });
                     } catch (error) {
                          const errorMsg = error instanceof Error ? error.message : 'Unknown error during audio fetch in offscreen';
-                         logToOffscreen(`Error in fetch-audio-data handling for Download ID ${message?.data?.downloadId}: ${errorMsg}`, 'error');
+                         logToOffscreen(`Error in fetch-audio-data handling for Download ID ${downloadId ?? 'unknown'}: ${errorMsg}`, 'error');
                          sendLogsToBackground('Audio fetch error'); // Send logs before error message
                          chrome.runtime.sendMessage({
                              target: 'background',
                              action: 'audioFetchError',
                              error: errorMsg,
-                             downloadId: message?.data?.downloadId ?? null
+                             downloadId: downloadId ?? null
                          });
                     }
                 })();
@@ -129,15 +134,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
 });
 
-// Function to fetch the audio data from a file URL
-async function handleFetchAudioData(fileUrl: string, downloadId: number): Promise<ArrayBuffer> {
+// Updated function to return both ArrayBuffer and Content-Type
+async function handleFetchAudioData(fileUrl: string, downloadId: number): Promise<{ arrayBuffer: ArrayBuffer, contentType: string | null }> {
     try {
         logToOffscreen(`Attempting fetch for URL: ${fileUrl} (Download ID: ${downloadId})`);
         const response = await fetch(fileUrl, { credentials: 'include' });
         logToOffscreen(`Fetch response status for ${fileUrl}: ${response.status}`);
         logToOffscreen(`Fetch response ok: ${response.ok}`);
+        
+        const contentTypeHeader = response.headers.get('content-type');
+        const contentType = contentTypeHeader ? contentTypeHeader.split(';')[0].trim() : null; // Extract MIME type
+        
         logToOffscreen(`Fetch response Content-Length: ${response.headers.get('content-length')}`);
-        logToOffscreen(`Fetch response Content-Type: ${response.headers.get('content-type')}`);
+        logToOffscreen(`Fetch response Content-Type header: ${contentTypeHeader}`);
+        logToOffscreen(`Extracted Content-Type: ${contentType}`);
 
         if (!response.ok) {
             let errorBody = 'No further details available.';
@@ -157,7 +167,7 @@ async function handleFetchAudioData(fileUrl: string, downloadId: number): Promis
              logToOffscreen(`Fetched ArrayBuffer is empty (0 bytes) for URL: ${fileUrl}`, 'warn');
         }
 
-        return arrayBuffer;
+        return { arrayBuffer, contentType }; // Return both
     } catch (error) {
         logToOffscreen(`Error during fetch/processing for ${fileUrl}: ${error instanceof Error ? error.message : String(error)}`, 'error');
         throw error;

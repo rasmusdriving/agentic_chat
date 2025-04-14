@@ -8,15 +8,16 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 
 *   **Popup (`src/popup/`)**: The main user interface, presented when the extension icon is clicked. It handles user input for chat, displays conversation history, manages image uploads for vision models, and presents transcription controls/results. It communicates primarily with the Background Service Worker.
 *   **Background Service Worker (`src/background.ts`)**: An event-driven script that runs independently of any specific tab or popup window. It acts as the central hub for:
-    *   Listening to browser events (e.g., `chrome.downloads.onChanged`).
+    *   Listening to browser events (e.g., `chrome.downloads.onChanged`, `chrome.contextMenus.onClicked`).
     *   Handling communication with the Groq API (both chat completions and transcription).
     *   Managing the Offscreen Document lifecycle.
-    *   Routing messages between the Popup and the Offscreen Document.
+    *   Routing messages between the Popup, Content Script, and Offscreen Document.
+    *   Processing transcription requests initiated via downloads, context menu clicks (direct URL), or context menu clicks (clipboard fallback).
 *   **Options Page (`src/options/`)**: A persistent page accessible via extension settings or right-clicking the icon. Its primary role is to allow the user to securely input and save their Groq API key to `chrome.storage.local`.
 *   **Offscreen Document (`src/offscreen/`)**: A minimal, hidden HTML page used to perform tasks requiring DOM APIs not available to Service Workers. In this extension, its purpose is to:
-    *   Fetch the content of an audio file using its **original download URL** (obtained via `chrome.downloads`) using the `fetch` API. *Note: It does not access local file paths directly.*
+    *   Fetch the content of an audio file using its **original source URL** (passed by the background script) using the `fetch` API. It retrieves both the audio data (`ArrayBuffer`) and the `Content-Type` header.
     *   Read data from the clipboard when requested (using `navigator.clipboard.readText`).
-    It communicates results (or errors) back to the Background Service Worker.
+    It communicates results (audio data + content type, clipboard text) or errors back to the Background Service Worker.
 *   **Content Scripts (`src/content_script.ts` & associated CSS)**: Injected into web pages (`<all_urls>`). Its primary role is to:
     *   Listen for text selection events (or other triggers if added later).
     *   Send the selected text content to the background script using `chrome.runtime.sendMessage` (action: `setSelectedText`).
@@ -26,17 +27,22 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 
 *   **`manifest.json`**: Defines permissions (`downloads`, `storage`, `offscreen`, `scripting`, `contextMenus`, `clipboardRead`), host permissions (`<all_urls>`, specific domains if needed), background service worker registration, UI pages (`popup`, `options`), icons, and Content Security Policy (CSP).
 *   **`src/background.ts`**: 
-    *   Manages all interactions with the Groq API (`streamGroqChatApi` for chat, Groq transcription API calls using `whisper-large-v3-turbo`).
+    *   Manages all interactions with the Groq API (`streamGroqChatApi` for chat, Groq transcription API calls using `whisper-large-v3-turbo` within `processAudioData`).
     *   Listens for download completion events (`chrome.downloads.onChanged`) and stores relevant metadata (`pendingDownload`).
-    *   Listens for context menu clicks (`chrome.contextMenus.onClicked`) to trigger clipboard transcription flow.
+    *   Listens for context menu clicks (`chrome.contextMenus.onClicked`):
+        *   Checks for `info.linkUrl` or `info.srcUrl`.
+        *   If found, calls `handleTranscribeFromUrl` to initiate direct transcription.
+        *   If not found, calls `initiateClipboardReadForTranscription` as a fallback.
     *   Handles message routing (`chrome.runtime.onMessage`) from Popup, Content Script, and Offscreen.
     *   Manages the creation (`setupOffscreenDocument`) and potential closing (`closeOffscreenDocument`) of the offscreen document.
-    *   Processes transcription requests (from downloads or clipboard URLs), coordinating with the Offscreen document to fetch audio data and then sending it to the Groq transcription endpoint.
+    *   Initiates transcription requests (`handleTranscriptionRequest`) which opens the popup, updates state, and triggers the offscreen document to fetch audio.
+    *   Processes fetched audio data (`processAudioData`), determines MIME type (prioritizing `contentType` from offscreen), constructs filename with extension, and sends data to the Groq transcription endpoint.
     *   Handles selected text received from the content script (`setSelectedText`), storing it and attempting to open the popup.
     *   Updates shared state in `chrome.storage.local` (e.g., `transcriptionState`, `transcriptionResult`, `transcriptionError`, `lastSelectedText`).
 *   **`src/popup/popup.ts`**:
     *   Initializes the UI state based on data loaded from `chrome.storage.local` (`loadApiKeyStatus`, `loadSelectedModel`, `loadChatHistory`, `loadTranscriptionState`).
     *   Handles user input (text, image drop, button clicks).
+    *   Displays appropriate UI for transcription state (`requestDiv`, `loadingDiv`, `resultDiv`, `errorDiv`).
     *   Renders the chat history (`renderChatHistory`).
     *   Manages the streaming display of AI responses (`createAiMessagePlaceholder`, `appendToCurrentAiMessage`, `finalizeAiMessage`).
     *   Sends user messages and transcription action requests to the background script.
@@ -49,9 +55,9 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
     *   Loads and displays the currently saved key (if any) on initialization.
 *   **`src/offscreen/offscreen.ts`**:
     *   Listens for messages specifically targeted at it from the background script (`fetch-audio-data`, `read-clipboard`).
-    *   Handles `fetch-audio-data` requests: Uses the `fetch` API to get the audio file content (as an ArrayBuffer, then base64 encoded) from its **original download URL**.
+    *   Handles `fetch-audio-data` requests: Uses the `fetch` API to get the audio file content (as an ArrayBuffer) and the `Content-Type` header from its **source URL**.
     *   Handles `read-clipboard` requests: Uses `navigator.clipboard.readText()`.
-    *   Sends results (audio data, clipboard text) or errors back to the background script.
+    *   Sends results (Base64 audio data + content type, clipboard text) or errors back to the background script.
 *   **`src/content_script.ts`**:
     *   Adds event listeners (e.g., `mouseup`) to detect when the user finishes selecting text.
     *   Retrieves the selected text using `window.getSelection()`.
@@ -96,35 +102,40 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 17. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
 18. **Popup**: `loadTranscriptionState` reads `transcriptionResult` from storage -> Displays transcript and action buttons.
 
-**C. Transcribing a URL from Clipboard (via Context Menu):**
+**C. Transcribing via Context Menu (Direct URL):**
 
-1.  **User**: Copies an audio URL -> Right-clicks on a webpage -> Selects "Transcribe Audio Link from Clipboard".
-2.  **Background**: `chrome.contextMenus.onClicked` listener receives event for `CONTEXT_MENU_ID`.
-3.  **Background**: Calls `handleTranscribeFromClipboard`.
-4.  **Background**: `handleTranscribeFromClipboard` -> Calls `setupOffscreenDocument` to ensure it's ready.
-5.  **Background**: Sends `read-clipboard` message to Offscreen document.
-6.  **Offscreen**: Listener receives `read-clipboard` -> Calls `navigator.clipboard.readText()`.
-7.  **Offscreen**: Sends `clipboardDataResponse` (with text) or `clipboardReadError` message back to Background.
-8.  **Background**: Listener receives `clipboardDataResponse` -> Calls `processClipboardContent`.
-9.  **Background**: `processClipboardContent` validates if the text is a valid HTTP/HTTPS URL.
-10. **Background**: (If valid URL) Makes `HEAD` request to the URL to check `Content-Type` and `Content-Length`.
-11. **Background**: Validates MIME type against `SUPPORTED_MIME_TYPES` and size against `MAX_FILE_SIZE_BYTES`.
-12. **Background**: (If valid) Extracts filename, stores details (URL, filename, size, MIME) in `pendingDownload` (using `isUrlSource: true` flag), sets `transcriptionState: 'pending_user_action'` in `chrome.storage.local`.
-13. **Background**: Sends `updatePopupState` message to Popup.
-14. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
-15. **Popup**: `loadTranscriptionState` reads `pendingDownload` from storage -> Shows transcription request UI (now for the URL).
-16. **Popup**: User clicks "Yes" -> Sends `startTranscription` message (with the temporary downloadId for the URL) to Background.
-17. **Background**: Listener receives `startTranscription` -> Sets `transcriptionState: 'loading'` -> Calls `handleTranscriptionRequest`.
-18. **Background**: `handleTranscriptionRequest` -> Finds `pendingDownload` details (including the URL) -> Calls `setupOffscreenDocument` (likely already open).
-19. **Background**: Sends `fetch-audio-data` message to Offscreen document with the audio *URL* (not downloadId).
-20. **Offscreen**: Listener receives `fetch-audio-data` -> `fetch`es the audio *URL* -> Converts to Base64.
-21. **Offscreen**: Sends `audioDataFetched` (with Base64 data) or `audioFetchError` back to Background.
-22. **Background**: Listener receives message -> Calls `processAudioData` (if successful).
-23. **Background**: `processAudioData` sends Base64 data to Groq transcription API (`whisper-large-v3-turbo`).
-24. **Background**: Receives transcription result -> Stores transcript in `transcriptionResult`, sets `transcriptionState: 'complete'`, clears `pendingDownload` in `chrome.storage.local`.
-25. **Background**: Sends `updatePopupState` message to Popup.
-26. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
-27. **Popup**: `loadTranscriptionState` reads `transcriptionResult` from storage -> Displays transcript.
+1.  **User**: Right-clicks on an audio link/element -> Selects "Transcribe Audio".
+2.  **Background**: `chrome.contextMenus.onClicked` listener receives event with `info.linkUrl` or `info.srcUrl`.
+3.  **Background**: Calls `handleTranscribeFromUrl` with the direct URL.
+4.  **Background**: `handleTranscribeFromUrl` calls `preparePendingUrlDownload`.
+5.  **Background**: `preparePendingUrlDownload` stores initial `pendingDownload` state (with URL, generated filename, temporary ID, `isUrlSource: true`) and `transcriptionState: 'pending_user_action'` in `chrome.storage.local`. Returns the temporary ID.
+6.  **Background**: `handleTranscribeFromUrl` immediately calls `handleTranscriptionRequest` with the temporary ID.
+7.  **Background**: `handleTranscriptionRequest` opens the popup (`chrome.action.openPopup`).
+8.  **Background**: `handleTranscriptionRequest` finds the `pendingDownload` details, sets `transcriptionState: 'fetching'`, calls `setupOffscreenDocument`.
+9.  **Background**: Sends `fetch-audio-data` message to Offscreen with the audio URL and temporary ID.
+10. **Offscreen**: Listener receives `fetch-audio-data` -> `fetch`es the audio URL -> Gets `ArrayBuffer` and `Content-Type`.
+11. **Offscreen**: Sends `audioDataFetched` message (with Base64 data and content type) back to Background.
+12. **Background**: Listener receives `audioDataFetched` -> Calls `processAudioData`.
+13. **Background**: `processAudioData` decodes data, determines final MIME type (prioritizing fetched content type), generates `filenameForApi` with correct extension, sets `transcriptionState: 'transcribing'`, calls Groq API.
+14. **Background**: Receives transcription result -> Stores transcript in `transcriptionResult`, sets `transcriptionState: 'complete'`, clears `pendingDownload`.
+15. **Background**: Sends `updatePopupState` message to Popup.
+16. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
+17. **Popup**: `loadTranscriptionState` reads `transcriptionResult` -> Displays transcript.
+
+**D. Transcribing via Context Menu (Clipboard Fallback):**
+
+1.  **User**: Copies an audio URL -> Right-clicks elsewhere on a page -> Selects "Transcribe Audio".
+2.  **Background**: `chrome.contextMenus.onClicked` listener receives event, but `info.linkUrl`/`info.srcUrl` are null.
+3.  **Background**: Calls `initiateClipboardReadForTranscription`.
+4.  **Background**: `initiateClipboardReadForTranscription` calls `setupOffscreenDocument`, clears previous state, sends `read-clipboard` message to Offscreen.
+5.  **Offscreen**: Listener receives `read-clipboard` -> Calls `navigator.clipboard.readText()`.
+6.  **Offscreen**: Sends `clipboardDataResponse` (with text) or `clipboardReadError` back to Background.
+7.  **Background**: Listener receives `clipboardDataResponse` -> Calls `processClipboardContent`.
+8.  **Background**: `processClipboardContent` validates the text is a URL -> Calls `preparePendingUrlDownload` (source: 'clipboard').
+9.  **Background**: `preparePendingUrlDownload` stores initial `pendingDownload` state, sets `transcriptionState: 'pending_user_action'`, closes the Offscreen document (as clipboard read is done), returns temporary ID.
+10. **Background**: `processClipboardContent` immediately calls `handleTranscriptionRequest` with the temporary ID.
+11. **Background**: `handleTranscriptionRequest` opens popup, sets state to 'fetching', sends message to Offscreen (a *new* instance will be created if needed) to fetch audio via URL.
+12. **(Steps 10-17 from flow C repeat):** Offscreen fetches -> Background processes -> Popup updates.
 
 ## 4. State Management
 
@@ -133,8 +144,8 @@ State is primarily managed using `chrome.storage.local`. This allows data persis
 *   **`groqApiKey`**: Stores the user's API key (set via Options page).
 *   **`selectedGroqModel`**: Stores the ID of the chat model currently selected in the popup.
 *   **`chatHistory`**: Stores an array of chat message objects (`{ role: 'user'|'assistant', content: any }`).
-*   **`pendingDownload`**: Temporarily stores details of a detected audio download awaiting user action (`{ downloadId, filename, url, fileSize, mime }`).
-*   **`transcriptionState`**: Tracks the current status of a transcription task (`'pending_user_action'`, `'loading'`, `'fetching'`, `'transcribing'`, `'complete'`, `'error'`).
+*   **`pendingDownload`**: Temporarily stores details of a detected audio download OR a URL-based request awaiting processing (`{ downloadId, filename, url, fileSize, mime, isUrlSource? }`).
+*   **`transcriptionState`**: Tracks the current status of a transcription task (`'pending_user_action'`, `'loading'` (for downloads only), `'fetching'`, `'transcribing'`, `'complete'`, `'error'`).
 *   **`transcriptionResult`**: Stores the successful transcription text.
 *   **`transcriptionError`**: Stores error messages related to transcription.
 *   **`lastSelectedText`**: Stores the most recent text selected by the user on a webpage (sent from the content script).

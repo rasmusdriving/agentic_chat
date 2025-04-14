@@ -10,8 +10,8 @@ This Chrome extension provides a powerful interface to interact with various AI 
 *   **Chat Reset:** Clear the current conversation history to start fresh.
 *   **Selected Text Capture:** Select text on any webpage, and the extension can capture it to potentially use in the chat.
 *   **Audio Transcription (Downloads):** Automatically detects completed audio file downloads (MP3, WAV, M4A, OGG, FLAC, WEBM etc.).
-*   **Audio Transcription (Clipboard URL):** Transcribe audio directly from a URL copied to your clipboard via the context menu.
-*   **One-Click Transcription:** Transcribe detected audio files or clipboard URLs with a single click using Groq's transcription API (`whisper-large-v3-turbo`).
+*   **Audio Transcription (Context Menu):** Right-click on an audio link or HTML audio/video element and select "Transcribe Audio" to transcribe directly from the source URL.
+*   **One-Click Transcription:** Start transcription for downloaded files or context menu actions immediately using Groq's transcription API (`whisper-large-v3-turbo`).
 *   **Transcription Actions:**
     *   **Copy:** Copy the full transcript to the clipboard.
     *   **Summary:** Send the transcript to the selected chat model to generate a summary.
@@ -76,11 +76,18 @@ This Chrome extension provides a powerful interface to interact with various AI 
     *   If using a vision model, drag and drop an image onto the input area before sending your message.
     *   Click the refresh icon in the header to clear the chat history.
 2.  **Transcription:**
-    *   Download an audio file (e.g., MP3, WAV, M4A).
-    *   The extension popup will automatically update, showing a prompt to transcribe the detected file.
-    *   Click "Yes" to start the transcription. A loading indicator will appear.
-    *   Once complete, the transcript will be displayed in the "Transcription" section.
-    *   Use the "Copy", "Summary", or "Email" buttons to interact with the transcript.
+    *   **From Downloads:**
+        *   Download an audio file (e.g., MP3, WAV, M4A).
+        *   The extension popup will automatically update, showing a prompt to transcribe the detected file.
+        *   Click "Yes" to start the transcription.
+    *   **From Context Menu:**
+        *   Right-click on a direct link to an audio file (e.g., `.../audio.mp3`) or on an embedded HTML5 audio/video player.
+        *   Select "Transcribe Audio" from the context menu.
+        *   The extension popup will open (if not already open) and automatically start the transcription.
+    *   **Transcription Process:**
+        *   A loading indicator will appear in the popup while the audio is fetched and processed.
+        *   Once complete, the transcript will be displayed in the "Transcription" section.
+        *   Use the "Copy", "Summary", or "Email" buttons to interact with the transcript.
 
 ## Project Structure
 
@@ -117,7 +124,7 @@ This Chrome extension provides a powerful interface to interact with various AI 
 ```
 
 *   **`manifest.json`**: Defines the extension's properties, permissions, scripts, and UI pages.
-*   **`src/background.ts`**: The service worker running in the background. It handles API calls, download events, clipboard URL processing, context menu actions, message passing between components, and manages the offscreen document.
+*   **`src/background.ts`**: The service worker running in the background. It handles API calls, download events, clipboard URL processing (as fallback), context menu actions (direct URL transcription), message passing between components, and manages the offscreen document.
 *   **`src/popup/`**: Contains the code for the main extension popup UI, including the chat interface and transcription controls.
 *   **`src/options/`**: Contains the code for the extension's options page, primarily used for setting the API key.
 *   **`src/offscreen/`**: Contains the HTML and TypeScript for the offscreen document, used to fetch audio from URLs and read the clipboard.
