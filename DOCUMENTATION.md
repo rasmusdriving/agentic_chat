@@ -42,13 +42,14 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 *   **`src/popup/popup.ts`**:
     *   Initializes the UI state based on data loaded from `chrome.storage.local` (`loadApiKeyStatus`, `loadSelectedModel`, `loadChatHistory`, `loadTranscriptionState`).
     *   Handles user input (text, image drop, button clicks).
-    *   Displays appropriate UI for transcription state (`requestDiv`, `loadingDiv`, `resultDiv`, `errorDiv`).
+    *   Displays appropriate UI elements based on state: `#transcription-loading-notification` during transcription, `#transcription-notification` bar upon completion, `#error-message`, `#no-key-message`.
+    *   Manages the `transcriptionContextPending` flag to track if the user clicked "Attach" on the notification bar.
     *   Renders the chat history (`renderChatHistory`).
-    *   Manages the streaming display of AI responses (`createAiMessagePlaceholder`, `appendToCurrentAiMessage`, `finalizeAiMessage`).
-    *   Sends user messages and transcription action requests to the background script.
+    *   Manages the streaming display of AI responses.
+    *   Sends user messages to the background script (`handleSendMessage`), prepending transcription context (`prepareContentForApi`) if `transcriptionContextPending` is true.
     *   Listens for messages from the background script (`addAiChatChunk`, `endAiChatStream`, `chatError`, `updatePopupState`, etc.) and updates the UI accordingly.
     *   Saves chat history and selected model to `chrome.storage.local`.
-    *   Potentially loads `lastSelectedText` from storage to pre-fill chat input when opened after text selection.
+    *   Handles selected text context loading and prepping.
 *   **`src/options/options.ts`**:
     *   Provides UI for entering the Groq API key.
     *   Saves the key to `chrome.storage.local` upon user confirmation.
@@ -100,7 +101,13 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 15. **Background**: Receives transcription result -> Stores transcript in `transcriptionResult`, sets `transcriptionState: 'complete'` in `chrome.storage.local`.
 16. **Background**: Sends `updatePopupState` message to Popup.
 17. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
-18. **Popup**: `loadTranscriptionState` reads `transcriptionResult` from storage -> Displays transcript and action buttons.
+18. **Popup**: `loadTranscriptionState` reads `transcriptionResult` from storage -> `showTranscriptionNotification` displays the notification bar (`#transcription-notification`) with "Attach", "Copy", "Dismiss" buttons.
+19. **Popup**: User clicks "Attach" -> `attachTranscriptionBtn.onclick` sets `transcriptionContextPending = true`, hides the notification bar, and adds a glow to the input.
+20. **Popup**: User types question, clicks Send -> `handleSendMessage` calls `prepareContentForApi`.
+21. **Popup**: `prepareContentForApi` sees `transcriptionContextPending` is true and `currentTranscription` has data -> Prepends `"Transcript:\n...\n\nUser Question:"` to the user's message content.
+22. **Popup**: `handleSendMessage` sends the combined message to the Background via `sendChatMessage`.
+23. **(Steps 6-13 from Flow A repeat):** Background calls API, streams response, Popup displays it.
+24. **Popup**: `handleSendMessage` resets `transcriptionContextPending` and `currentTranscription` after successful send.
 
 **C. Transcribing via Context Menu (Direct URL):**
 
@@ -120,7 +127,8 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 14. **Background**: Receives transcription result -> Stores transcript in `transcriptionResult`, sets `transcriptionState: 'complete'`, clears `pendingDownload`.
 15. **Background**: Sends `updatePopupState` message to Popup.
 16. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
-17. **Popup**: `loadTranscriptionState` reads `transcriptionResult` -> Displays transcript.
+17. **Popup**: `loadTranscriptionState` reads `transcriptionResult` -> `showTranscriptionNotification` displays the notification bar.
+18. **(Steps 19-24 from Flow B repeat):** User clicks Attach, sends message, context is prepended, API is called, context is cleared.
 
 **D. Transcribing via Context Menu (Clipboard Fallback):**
 
@@ -135,27 +143,33 @@ The extension follows a standard Chrome Extension Manifest V3 architecture, util
 9.  **Background**: `preparePendingUrlDownload` stores initial `pendingDownload` state, sets `transcriptionState: 'pending_user_action'`, closes the Offscreen document (as clipboard read is done), returns temporary ID.
 10. **Background**: `processClipboardContent` immediately calls `handleTranscriptionRequest` with the temporary ID.
 11. **Background**: `handleTranscriptionRequest` opens popup, sets state to 'fetching', sends message to Offscreen (a *new* instance will be created if needed) to fetch audio via URL.
-12. **(Steps 10-17 from flow C repeat):** Offscreen fetches -> Background processes -> Popup updates.
+12. **Popup**: Listener receives `updatePopupState` -> Calls `loadTranscriptionState`.
+13. **Popup**: `loadTranscriptionState` reads `transcriptionResult` -> `showTranscriptionNotification` displays the notification bar.
+14. **(Steps 19-24 from Flow B repeat):** User clicks Attach, sends message, context is prepended, API is called, context is cleared.
 
 ## 4. State Management
 
-State is primarily managed using `chrome.storage.local`. This allows data persistence across popup openings and background script restarts.
+State is primarily managed using `chrome.storage.local` and popup script variables.
 
-*   **`groqApiKey`**: Stores the user's API key (set via Options page).
-*   **`selectedGroqModel`**: Stores the ID of the chat model currently selected in the popup.
-*   **`chatHistory`**: Stores an array of chat message objects (`{ role: 'user'|'assistant', content: any }`).
-*   **`pendingDownload`**: Temporarily stores details of a detected audio download OR a URL-based request awaiting processing (`{ downloadId, filename, url, fileSize, mime, isUrlSource? }`).
-*   **`transcriptionState`**: Tracks the current status of a transcription task (`'pending_user_action'`, `'loading'` (for downloads only), `'fetching'`, `'transcribing'`, `'complete'`, `'error'`).
-*   **`transcriptionResult`**: Stores the successful transcription text.
-*   **`transcriptionError`**: Stores error messages related to transcription.
-*   **`lastSelectedText`**: Stores the most recent text selected by the user on a webpage (sent from the content script).
+*   **`groqApiKey` (storage)**: Stores the user's API key.
+*   **`selectedGroqModel` (storage)**: Stores the ID of the chat model.
+*   **`chatHistory` (storage & popup variable)**: Stores the array of chat message objects.
+*   **`pendingDownload` (storage)**: Temporarily stores details of a detected audio download OR a URL-based request.
+*   **`transcriptionState` (storage)**: Tracks the background status (`pending_user_action`, `loading`, `fetching`, `transcribing`, `complete`, `error`).
+*   **`transcriptionResult` (storage)**: Stores the successful transcription text.
+*   **`transcriptionError` (storage)**: Stores error messages related to transcription.
+*   **`lastSelectedText` (storage)**: Stores the most recent text selected by the user (cleared after being loaded by popup).
+*   **`currentTranscription` (popup variable)**: Holds the transcription text loaded from storage when the notification bar is shown. Cleared after being used as context or dismissed.
+*   **`transcriptionContextPending` (popup variable)**: Boolean flag set to true when the user clicks "Attach" on the transcription notification bar. Checked by `prepareContentForApi` and reset by `handleSendMessage` after use.
+*   **`attachedImageDataUrl` (popup variable)**: Holds base64 image data.
+*   **`currentSelectedTextContext` (popup variable)**: Holds selected text loaded from storage (cleared after use).
 
 Components (Popup, Background) load relevant state from storage on initialization or when notified of changes (via `updatePopupState` messages) and save updates back to storage.
 
 ## 5. Error Handling
 
-*   **API Errors (Chat/Transcription)**: `fetch` calls in `background.ts` include `.catch()` blocks. Errors are logged, and specific error messages (`chatError`, `transcriptionError`) are sent to the popup for display. The popup's `chatError` handler updates the UI, potentially modifying the AI message placeholder.
-*   **Storage Errors**: `try...catch` blocks are used around `chrome.storage` calls, though errors here are less common. Failures might involve logging or defaulting to an empty state.
+*   **API Errors (Chat/Transcription)**: `fetch` calls in `background.ts` include `.catch()` blocks. Errors are logged, and `chatError` or `transcriptionError` messages are sent to the popup. `handleChatError` in the popup updates the last assistant message in the chat history with `[Error: ...]`. Other errors might be shown in the `#error-message` div.
+*   **Storage Errors**: `try...catch` blocks are used around `chrome.storage` calls.
 *   **Offscreen Document Errors**: Fetching audio (from URL) or reading the clipboard in the offscreen document can fail. `offscreen.ts` catches these errors and sends specific error messages back to the background script, which then updates the `transcriptionState`/`transcriptionError` in storage and notifies the popup.
 *   **Content Script Errors**: Errors related to accessing `window.getSelection()` or sending messages might occur, typically logged to the content script's console.
 *   **UI Errors**: Standard JavaScript error handling within the popup/options scripts.

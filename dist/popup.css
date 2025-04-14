@@ -451,4 +451,104 @@ select:focus {
   color: var(--text-primary);
   align-self: flex-start;
   border-bottom-left-radius: var(--border-radius-sm);
+}
+
+/* --- Transcription Notification Bar --- */
+#transcription-notification {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  margin-top: 4px;
+  gap: 10px;
+  font-size: 0.98em;
+  color: var(--text-secondary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+#transcription-notification button {
+  background: none;
+  color: var(--text-secondary);
+  border: none;
+  padding: 2px 8px;
+  font-size: 0.98em;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+#transcription-notification button:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+}
+#transcription-icon svg {
+  vertical-align: middle;
+  opacity: 0.7;
+}
+
+/* --- Clipboard Icon for Chat Messages --- */
+.copy-clipboard-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin-left: 6px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.2s;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+}
+.copy-clipboard-btn:hover {
+  opacity: 0.85;
+}
+.copy-clipboard-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: #aaa;
+}
+
+.copied-tooltip {
+  position: absolute;
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+  font-size: 0.85em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  top: -22px;
+  pointer-events: none;
+  opacity: 0.95;
+  z-index: 10;
+}
+
+/* --- Transcription Loading Notification --- */
+#transcription-loading-notification {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  margin-top: 4px;
+  gap: 10px;
+  font-size: 0.98em;
+  color: var(--text-secondary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.spinner {
+  border: 2px solid #444;
+  border-top: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 } 

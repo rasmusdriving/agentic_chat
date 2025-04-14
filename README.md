@@ -13,9 +13,9 @@ This Chrome extension provides a powerful interface to interact with various AI 
 *   **Audio Transcription (Context Menu):** Right-click on an audio link or HTML audio/video element and select "Transcribe Audio" to transcribe directly from the source URL.
 *   **One-Click Transcription:** Start transcription for downloaded files or context menu actions immediately using Groq's transcription API (`whisper-large-v3-turbo`).
 *   **Transcription Actions:**
-    *   **Copy:** Copy the full transcript to the clipboard.
-    *   **Summary:** Send the transcript to the selected chat model to generate a summary.
-    *   **Email:** Send the transcript to the selected chat model to draft an email based on its content.
+    *   **Copy:** Copy the full transcript to the clipboard via a button on the notification bar.
+    *   **Attach:** Attach the full transcript as context to your *next* chat message via a button on the notification bar. The transcript will be prepended to your message.
+    *   **Dismiss:** Hide the transcription notification bar.
 *   **Streaming Responses:** AI chat responses are streamed word-by-word for a smoother experience.
 *   **API Key Management:** Securely store your Groq API key via the extension's options page.
 *   **Modern UI:** Clean and responsive interface built with TypeScript and CSS variables.
@@ -85,9 +85,10 @@ This Chrome extension provides a powerful interface to interact with various AI 
         *   Select "Transcribe Audio" from the context menu.
         *   The extension popup will open (if not already open) and automatically start the transcription.
     *   **Transcription Process:**
-        *   A loading indicator will appear in the popup while the audio is fetched and processed.
-        *   Once complete, the transcript will be displayed in the "Transcription" section.
-        *   Use the "Copy", "Summary", or "Email" buttons to interact with the transcript.
+        *   A loading indicator (`Transcribing audio...`) will appear near the bottom of the popup while the audio is fetched and processed.
+        *   Once complete, a notification bar will appear near the bottom with the text "Transcription available".
+        *   Use the "Attach", "Copy", or "Dismiss" (✕) buttons on the notification bar to interact with the transcript.
+        *   Clicking "Attach" will make the input area glow briefly. Type your question about the transcript and send it; the transcript text will be automatically included with your question.
 
 ## Project Structure
 

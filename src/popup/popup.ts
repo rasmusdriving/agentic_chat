@@ -20,27 +20,16 @@ const imagePreviewEl = document.getElementById('image-preview')! as HTMLImageEle
 const removeImageButton = document.getElementById('remove-image-button')! as HTMLButtonElement;
 const chatInputEl = document.getElementById('chat-input')! as HTMLTextAreaElement;
 const sendButton = document.getElementById('send-button')! as HTMLButtonElement;
-const transcriptionContainerDiv = document.getElementById('transcription-container')!;
 const statusMessagesDiv = document.getElementById('status-messages')!;
 const modelSelectEl = document.getElementById('model-select')! as HTMLSelectElement; // Definition for model select
 const initialMessageDiv = document.getElementById('initial-message')!;
-const requestDiv = document.getElementById('transcription-request')!;
-const resultDiv = document.getElementById('transcription-result')!;
-const loadingDiv = document.getElementById('loading-indicator')!;
 const errorDiv = document.getElementById('error-message')!;
 const noKeyDiv = document.getElementById('no-key-message')!;
-const filenameEl = document.getElementById('filename')!;
-const confirmButton = document.getElementById('confirm-transcribe')! as HTMLButtonElement;
-const cancelButton = document.getElementById('cancel-transcribe')! as HTMLButtonElement;
-const transcriptionTextEl = document.getElementById('transcription-text')!;
-const copyButton = document.getElementById('copy-button')! as HTMLButtonElement;
-const summaryButton = document.getElementById('summary-button')! as HTMLButtonElement;
-const emailButton = document.getElementById('email-button')! as HTMLButtonElement;
-const transcriptionDetailsEl = document.getElementById('transcription-details')! as HTMLDetailsElement;
-const errorDetailsEl = document.getElementById('error-details')!;
-const openOptionsButton = document.getElementById('open-options')! as HTMLButtonElement;
-const dismissErrorButton = document.getElementById('dismiss-error-button')! as HTMLButtonElement;
-const resetChatButton = document.getElementById('reset-chat-button')! as HTMLButtonElement; // Get reset button
+const transcriptionNotificationDiv = document.getElementById('transcription-notification')!;
+const attachTranscriptionBtn = document.getElementById('attach-transcription-btn')! as HTMLButtonElement;
+const copyTranscriptionBtn = document.getElementById('copy-transcription-btn')! as HTMLButtonElement;
+const dismissTranscriptionBtn = document.getElementById('dismiss-transcription-btn')! as HTMLButtonElement;
+const transcriptionLoadingNotificationDiv = document.getElementById('transcription-loading-notification')!;
 
 // State variables
 let currentDownloadId: number | null = null;
@@ -48,6 +37,9 @@ let currentSelectedModel: string = DEFAULT_MODEL;
 let chatHistory: { role: 'user' | 'assistant', content: any, contextUsed?: boolean }[] = [];
 let attachedImageDataUrl: string | null = null;
 let currentSelectedTextContext: string | null = null;
+let currentTranscription: string | null = null;
+let transcriptionNotificationDismissed = false;
+let transcriptionContextPending = false;
 
 // --- Helper Functions ---
 
@@ -70,9 +62,7 @@ function hideStatusMessages() {
 }
 
 function hideTranscriptionElements() {
-    hideElement(requestDiv);
-    hideElement(resultDiv);
-    hideElement(loadingDiv);
+    // hideElement(loadingDiv); // Removed - Element does not exist
 }
 
 function addMessageToChat(role: 'user' | 'assistant', content: any) {
@@ -81,11 +71,6 @@ function addMessageToChat(role: 'user' | 'assistant', content: any) {
     chatHistory.push({ role, content });
     saveChatHistory(); // Save history after adding a message
     renderChatHistory(); // Re-render the entire history
-}
-
-function resetButtonStates() {
-    confirmButton.disabled = false;
-    cancelButton.disabled = false;
 }
 
 function adjustUIForModel(modelId: string) {
@@ -102,34 +87,6 @@ function adjustUIForModel(modelId: string) {
     }
 }
 
-// Function to send a prompt based on transcription
-function sendTranscriptionPrompt(promptTemplate: string) {
-    const transcript = transcriptionTextEl.textContent?.trim();
-    if (!transcript) {
-        addMessageToChat('assistant', { error: 'Cannot generate prompt: Transcription is empty.'});
-        return;
-    }
-
-    const prompt = promptTemplate.replace('INSERT TRANSCRIPT HERE', transcript)
-                                .replace('INSERT TRANSCRIPT', transcript); // Handle both placeholders
-
-    // Add prompt to chat UI and history as a user message
-    addUserMessageToChat(prompt);
-
-    // Create placeholder for the AI's response (summary/email)
-    // createAiMessagePlaceholder();
-
-    // Prepare and send message to background
-    const messageToBackground = {
-        action: 'sendChatMessage',
-        payload: {
-            model: currentSelectedModel, // Use currently selected model
-            messages: [...chatHistory],
-        }
-    };
-    chrome.runtime.sendMessage(messageToBackground);
-}
-
 // --- Initialization Logic (Define before use) ---
 
 async function loadApiKeyStatus(): Promise<boolean> {
@@ -144,7 +101,6 @@ async function loadApiKeyStatus(): Promise<boolean> {
     } catch (error) {
         console.error("Error checking API key:", error);
         hideStatusMessages();
-        errorDetailsEl.textContent = 'Could not check API key status.';
         showElement(errorDiv);
         return false;
     }
@@ -173,60 +129,43 @@ async function loadSelectedModel(): Promise<void> {
 }
 
 async function loadTranscriptionState(): Promise<void> {
-    hideTranscriptionElements();
-    hideElement(transcriptionContainerDiv);
+    hideTranscriptionNotification();
+    hideTranscriptionLoadingNotification();
 
-    let transcriptionIsActive = false;
     let errorIsVisible = errorDiv.style.display !== 'none';
     let noKeyIsVisible = noKeyDiv.style.display !== 'none';
+
+    // Always enable chat input and send button unless actively loading transcription
+    sendButton.disabled = false;
+    chatInputEl.disabled = false;
 
     try {
         const result = await chrome.storage.local.get(['pendingDownload', 'transcriptionResult', 'transcriptionState', 'transcriptionError']);
 
         if (result.transcriptionState === 'loading') {
-            showElement(loadingDiv);
-            showElement(transcriptionContainerDiv);
-            transcriptionIsActive = true;
+            showTranscriptionLoadingNotification();
+            // Disable chat while loading transcription
+            sendButton.disabled = true;
+            chatInputEl.disabled = true;
         } else if (result.transcriptionResult) {
-            transcriptionTextEl.textContent = result.transcriptionResult;
-            showElement(resultDiv);
-            showElement(transcriptionContainerDiv);
-            transcriptionIsActive = true;
+            // Show notification bar instead of large module
+            if (!transcriptionNotificationDismissed) {
+                showTranscriptionNotification(result.transcriptionResult);
+            }
+            // Chat should be enabled
+            sendButton.disabled = false;
+            chatInputEl.disabled = false;
         } else if (result.transcriptionError) {
              hideStatusMessages();
-             errorDetailsEl.textContent = `Transcription Error: ${result.transcriptionError}`;
              showElement(errorDiv);
              errorIsVisible = true;
-        } else if (result.pendingDownload) {
-            currentDownloadId = result.pendingDownload.downloadId;
-            filenameEl.textContent = result.pendingDownload.filename;
-            resetButtonStates();
-            showElement(requestDiv);
-            showElement(transcriptionContainerDiv);
-            transcriptionIsActive = true;
-        } else {
-            console.log("No active transcription state.");
-            hideElement(transcriptionContainerDiv);
         }
-
     } catch (error) {
-        console.error("Error checking transcription state:", error);
-        hideStatusMessages();
-        hideTranscriptionElements();
-        hideElement(transcriptionContainerDiv);
-        errorDetailsEl.textContent = 'Could not retrieve extension state.';
-        showElement(errorDiv);
-        errorIsVisible = true;
-    }
-
-    // Update general status message if nothing else is active
-    if (!transcriptionIsActive && !errorIsVisible && !noKeyIsVisible) {
-        hideStatusMessages();
-        initialMessageDiv.textContent = 'Ready.';
-        showElement(initialMessageDiv);
-    } else if (initialMessageDiv.textContent === 'Loading...') {
-        // If still loading but something else became active, hide loading message
-        hideElement(initialMessageDiv);
+        console.error('Error loading transcription state:', error);
+         // Optionally show a generic error if loading state fails
+         hideStatusMessages();
+         showElement(errorDiv);
+         errorIsVisible = true; // Make sure this flag is set on catch
     }
 }
 
@@ -265,6 +204,7 @@ function createMessageElement(role: 'user' | 'assistant', content: any, contextU
 
     let isError = false;
     let imageIndicator = ''; // Only for user messages with images
+    let textContent = '';
 
     if (role === 'assistant') {
         if (typeof content === 'string') {
@@ -288,8 +228,8 @@ function createMessageElement(role: 'user' | 'assistant', content: any, contextU
             console.warn("createMessageElement received unexpected AI content:", content);
             messageDiv.textContent = "[Unsupported AI message content]";
         }
+        textContent = (typeof content === 'string') ? content : '';
     } else { // role === 'user'
-        let textContent = '';
         if (typeof content === 'string') {
             textContent = content;
         } else if (Array.isArray(content)) {
@@ -316,6 +256,21 @@ function createMessageElement(role: 'user' | 'assistant', content: any, contextU
         // Ensure consistent styling for errors regardless of original role class
         messageDiv.classList.remove('user-message', 'ai-message');
         messageDiv.classList.add('error-message-chat');
+    }
+
+    // Add clipboard copy button
+    if (!isError && textContent.trim().length > 0) {
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-clipboard-btn';
+        copyBtn.title = 'Copy message';
+        copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" fill="#222" stroke="#aaa" stroke-width="2"/><rect x="2" y="2" width="13" height="13" rx="2" fill="#222" stroke="#aaa" stroke-width="2"/></svg>`;
+        copyBtn.onclick = (e) => {
+            e.stopPropagation();
+            copyToClipboard(textContent);
+            showCopiedTooltip(copyBtn);
+        };
+        messageDiv.style.position = 'relative';
+        messageDiv.appendChild(copyBtn);
     }
 
     return messageDiv;
@@ -426,21 +381,55 @@ async function loadChatHistory(): Promise<void> {
     }
 }
 
+// Function to handle chat errors signaled from background
+function handleChatError(errorMessage: string) {
+    console.error("Handling chat error in popup:", errorMessage);
+    if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'assistant') {
+        // Update the last AI message (placeholder) with an error string
+        // *** FIX: Store a string, not an object ***
+        chatHistory[chatHistory.length - 1].content = `[Error: ${errorMessage}]`;
+        saveChatHistory();
+        renderChatHistory(); // Re-render to show the error message in place
+    } else {
+        // If no AI placeholder, maybe show a general error?
+        // This case is less likely with the current flow
+        console.warn("Chat error received, but no AI message placeholder found.");
+        // Optionally, display error in a dedicated error area
+    }
+    // Re-enable input after error
+    sendButton.disabled = false;
+    chatInputEl.disabled = false;
+}
+
 // Function to reset the chat
 async function resetChat() {
-    console.log("Resetting chat...");
-    chatHistory = [];
-    attachedImageDataUrl = null;
-    currentSelectedTextContext = null; // <-- Added: Clear context on reset
-    imagePreviewEl.src = '';
-    hideElement(imagePreviewAreaDiv);
-    chatInputEl.classList.remove('glow'); // <-- Remove glow on reset
-    renderChatHistory(); // Clear the display
+    console.log("[resetChat] Function called"); // <<< Added Log
     try {
-        await chrome.storage.local.remove([CHAT_HISTORY_KEY]);
-        console.log("Chat history cleared from storage.");
+        chatHistory = [];
+        await saveChatHistory();
+        renderChatHistory(); // Clears the display
+        console.log("[resetChat] History cleared and rendered"); // <<< Added Log
+
+        // Clear other related states
+        attachedImageDataUrl = null;
+        imagePreviewEl.src = '';
+        hideElement(imagePreviewAreaDiv);
+
+        currentSelectedTextContext = null;
+        transcriptionContextPending = false;
+        currentTranscription = null;
+        hideTranscriptionNotification();
+        transcriptionNotificationDismissed = false; // Allow notification again
+        console.log("[resetChat] Contexts and UI cleared"); // <<< Added Log
+
+        // Re-enable input
+        chatInputEl.disabled = false;
+        sendButton.disabled = false;
+        chatInputEl.value = '';
+        chatInputEl.focus();
+        console.log("[resetChat] Input re-enabled and focused"); // <<< Added Log
     } catch (error) {
-        console.error("Error clearing chat history from storage:", error);
+        console.error("[resetChat] Error during reset:", error); // <<< Added Log
     }
 }
 
@@ -452,73 +441,6 @@ modelSelectEl.addEventListener('change', async (event) => {
     currentSelectedModel = newModel;
     await chrome.storage.local.set({ [SELECTED_MODEL_KEY]: newModel });
     adjustUIForModel(newModel);
-});
-
-// Reset Chat Button Click Listener
-resetChatButton.addEventListener('click', resetChat);
-
-confirmButton.addEventListener('click', () => {
-    if (currentDownloadId !== null) {
-        confirmButton.disabled = true;
-        cancelButton.disabled = true;
-        hideTranscriptionElements();
-        showElement(loadingDiv);
-        showElement(transcriptionContainerDiv);
-        chrome.runtime.sendMessage({ action: 'startTranscription', downloadId: currentDownloadId });
-    }
-});
-
-cancelButton.addEventListener('click', () => {
-    if (currentDownloadId !== null) {
-        confirmButton.disabled = true;
-        cancelButton.disabled = true;
-        chrome.runtime.sendMessage({ action: 'cancelTranscription', downloadId: currentDownloadId });
-        hideTranscriptionElements();
-        hideElement(transcriptionContainerDiv);
-        hideStatusMessages();
-        initialMessageDiv.textContent = 'Transcription cancelled.';
-        showElement(initialMessageDiv);
-        currentDownloadId = null;
-    }
-});
-
-copyButton.addEventListener('click', () => {
-    const textToCopy = transcriptionTextEl.textContent || '';
-    if (!textToCopy) {
-        addMessageToChat('assistant', { error: 'Nothing to copy.'});
-        return;
-    }
-    navigator.clipboard.writeText(textToCopy)
-        .then(() => {
-            copyButton.textContent = 'Copied!';
-            setTimeout(() => copyButton.textContent = 'Copy', 1500); // Revert text
-        })
-        .catch(err => {
-            console.error('Failed to copy text: ', err);
-            addMessageToChat('assistant', { error: 'Failed to copy text to clipboard.' });
-        });
-});
-
-summaryButton.addEventListener('click', () => {
-    const summaryPrompt = "Summarize the phonecall based on the following transcript: INSERT TRANSCRIPT";
-    sendTranscriptionPrompt(summaryPrompt);
-});
-
-emailButton.addEventListener('click', () => {
-    const emailPrompt = "Based on the following transcript, create the email discussed: INSERT TRANSCRIPT HERE";
-    sendTranscriptionPrompt(emailPrompt);
-});
-
-openOptionsButton.addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-});
-
-dismissErrorButton.addEventListener('click', async () => {
-    console.log("Dismiss error button clicked");
-    hideStatusMessages();
-    await chrome.storage.local.remove(['transcriptionState', 'transcriptionError']);
-    console.log("Cleared error state from storage.");
-    await loadTranscriptionState();
 });
 
 sendButton.addEventListener('click', () => {
@@ -630,38 +552,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Popup received message:", message);
 
     switch (message.action) {
-        case 'requestTranscriptionConfirmation':
-            hideStatusMessages();
-            hideTranscriptionElements();
-            currentDownloadId = message.downloadId;
-            filenameEl.textContent = message.filename;
-            resetButtonStates();
-            showElement(requestDiv);
-            showElement(transcriptionContainerDiv);
-            break;
         case 'transcriptionComplete':
             hideStatusMessages();
             hideTranscriptionElements();
-            transcriptionTextEl.textContent = message.transcription;
-            showElement(resultDiv);
-            showElement(transcriptionContainerDiv);
             chrome.storage.local.remove(['pendingDownload', 'transcriptionState']);
-
-            // Indicate new transcription and briefly open details
-            transcriptionDetailsEl.querySelector('summary')!.textContent = 'Transcription Complete - Show/Hide';
-            transcriptionDetailsEl.open = true;
-            setTimeout(() => {
-                 // Optionally close it again after a delay, or leave open
-                 // transcriptionDetailsEl.open = false;
-                 transcriptionDetailsEl.querySelector('summary')!.textContent = 'Show/Hide Transcription'; // Reset text
-            }, 3000); // Keep open for 3 seconds
-
+            // Only show the notification bar via loadTranscriptionState
             loadTranscriptionState();
             break;
         case 'transcriptionError':
             hideStatusMessages();
-            hideTranscriptionElements();
-            errorDetailsEl.textContent = `Transcription Error: ${message.error || 'Unknown error'}`;
             showElement(errorDiv);
             chrome.storage.local.remove(['pendingDownload', 'transcriptionState']);
             break;
@@ -672,7 +571,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'apiKeyMissing':
             hideStatusMessages();
             hideTranscriptionElements();
-            hideElement(transcriptionContainerDiv);
             hideElement(initialMessageDiv);
             showElement(noKeyDiv);
             break;
@@ -710,33 +608,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function initializePopup() {
     console.log("Initializing popup...");
-    hideStatusMessages();
+    hideStatusMessages(); // Hide error/no-key first
     hideTranscriptionElements();
-    showElement(initialMessageDiv); // Show loading initially
+    hideTranscriptionLoadingNotification(); // Ensure loading indicator is hidden initially
+    hideTranscriptionNotification();     // Ensure transcription result is hidden initially
+    showElement(initialMessageDiv); // Show "Loading..." initially
 
     if (!await loadApiKeyStatus()) {
         console.log("API Key missing, initialization stopped.");
-        return; // Stop initialization if API key is missing
+        // loadApiKeyStatus already shows noKeyDiv, so just return
+        return;
     }
     console.log("API Key found.");
 
-    await loadSelectedModel(); // Load model preference first
-    await loadChatHistory(); // Load chat history
-    await loadTranscriptionState(); // Load transcription state last as it might hide initial message
-    await loadSelectedTextContext(); // <-- Added: Load selected text context
+    await loadSelectedModel();
+    await loadChatHistory();
+    await loadTranscriptionState(); // Load transcription state (might show loading/result notification or errorDiv)
+    await loadSelectedTextContext();
 
-    // Final UI adjustments based on loaded state (e.g., hide initial message)
-    if (transcriptionContainerDiv.style.display === 'none' &&
-        errorDiv.style.display === 'none' &&
-        noKeyDiv.style.display === 'none')
-    {
+    // Final UI adjustment: Hide "Loading..." unless error or no-key is displayed
+    if (errorDiv.style.display === 'none' && noKeyDiv.style.display === 'none') {
+        hideElement(initialMessageDiv);
+    } else {
+        // If error or no-key message IS displayed, ensure initial loading message is hidden
         hideElement(initialMessageDiv);
     }
 
-    // Focus input if transcription isn't active
-    if (transcriptionContainerDiv.style.display === 'none') {
+    // Focus input if transcription isn't active and chat isn't disabled
+    if (!chatInputEl.disabled) {
         chatInputEl.focus();
     }
+
+    // --- Add Event Listeners ---
+    console.log("[initializePopup] Adding event listeners..."); // <<< Added Log
+
+    // Add event listener for the reset button
+    const resetChatButton = document.getElementById('reset-chat-button');
+    if (resetChatButton) {
+        resetChatButton.addEventListener('click', () => {
+             console.log("[initializePopup] Reset button clicked!"); // <<< Added Log
+             resetChat();
+        });
+        console.log("[initializePopup] Reset button listener added."); // <<< Added Log
+    } else {
+        console.error("[initializePopup] Reset chat button not found!"); // <<< Added Log
+    }
+
+    // Add event listener for the send button
+    sendButton.addEventListener('click', () => {
+        // Simply call the handler function which contains all the logic
+        handleSendMessage();
+    });
 
     console.log("Popup initialization complete.");
 }
@@ -767,26 +689,72 @@ async function loadSelectedTextContext() {
     }
 }
 
+// --- Clipboard Utility ---
+function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Optionally show a tooltip or feedback
+    }).catch(err => {
+        alert('Failed to copy to clipboard.');
+        console.error('Clipboard copy failed:', err);
+    });
+}
+
+function showCopiedTooltip(target: HTMLElement) {
+    const tooltip = document.createElement('span');
+    tooltip.className = 'copied-tooltip';
+    tooltip.textContent = 'Copied!';
+    target.appendChild(tooltip);
+    setTimeout(() => {
+        tooltip.remove();
+    }, 900);
+}
+
+// --- Transcription Notification Logic ---
+function showTranscriptionNotification(transcription: string) {
+    currentTranscription = transcription;
+    transcriptionNotificationDiv.style.display = 'flex';
+    transcriptionNotificationDismissed = false;
+}
+function hideTranscriptionNotification() {
+    transcriptionNotificationDiv.style.display = 'none';
+    // currentTranscription = null; // <<< REMOVED: Don't nullify here
+}
+
+attachTranscriptionBtn.onclick = () => {
+    if (currentTranscription) {
+        transcriptionContextPending = true;
+        chatInputEl.classList.add('glow');
+        hideTranscriptionNotification();
+    }
+};
+copyTranscriptionBtn.onclick = () => {
+    if (currentTranscription) {
+        copyToClipboard(currentTranscription);
+        showCopiedTooltip(copyTranscriptionBtn);
+    }
+};
+dismissTranscriptionBtn.onclick = () => {
+    transcriptionNotificationDismissed = true;
+    hideTranscriptionNotification();
+};
+
 // Renamed and modified prepareMessagesForApi to prepareContentForApi
 // It now returns the final content and whether context was used, but doesn't modify history directly
 function prepareContentForApi(userMessageContent: any): { finalContent: any, contextWasUsed: boolean } {
     let contextWasUsed = false;
     let finalUserMessageContent = userMessageContent;
 
-    console.log('[Popup] prepareContentForApi - START - currentSelectedTextContext:', currentSelectedTextContext ? `"${currentSelectedTextContext.substring(0, 50)}..."` : 'null'); // Log context at start
+    console.log(`[prepareContentForApi] Checking context. transcriptionContextPending: ${transcriptionContextPending}, currentTranscription available: ${!!currentTranscription}, currentSelectedTextContext available: ${!!currentSelectedTextContext}`);
 
+    // Use selected text context if present
     if (currentSelectedTextContext) {
-        console.log("[Popup] Prepending selected text context to user message.");
+        console.log("[prepareContentForApi] Using selected text context.");
         const contextPrefix = `Based on the following selected text:\n\n"${currentSelectedTextContext}"\n\nPlease answer the question:`;
-
         if (typeof userMessageContent === 'string') {
             finalUserMessageContent = `${contextPrefix}\n\n${userMessageContent}`;
         } else if (Array.isArray(userMessageContent)) {
-            // Handle vision model case (array of objects)
-             // Create a new array to avoid modifying the original object if it's complex
-             const newContentArray = userMessageContent.map(part => ({...part}));
-             const textPartIndex = newContentArray.findIndex(part => part.type === 'text');
-
+            const newContentArray = userMessageContent.map(part => ({...part}));
+            const textPartIndex = newContentArray.findIndex(part => part.type === 'text');
             if (textPartIndex !== -1) {
                 newContentArray[textPartIndex].text = `${contextPrefix}\n\n${newContentArray[textPartIndex].text}`;
             } else {
@@ -794,68 +762,116 @@ function prepareContentForApi(userMessageContent: any): { finalContent: any, con
             }
             finalUserMessageContent = newContentArray;
         } else {
-            console.warn("Unknown user message content type when adding context:", userMessageContent);
             finalUserMessageContent = `${contextPrefix}\n\n${String(userMessageContent)}`;
         }
-
-        console.log('[Popup] prepareContentForApi - Context WAS USED. finalUserMessageContent:', typeof finalUserMessageContent === 'string' ? `"${finalUserMessageContent.substring(0, 100)}..."` : '[Object/Array]'); // Log modified content
         contextWasUsed = true;
         currentSelectedTextContext = null;
         chatInputEl.classList.remove('glow');
+    } else if (transcriptionContextPending && currentTranscription) {
+        console.log("[prepareContentForApi] Using transcription context.");
+        // Use transcription as context if attach was clicked
+        // *** FIX: Use simpler prefix as requested ***
+        const contextPrefix = `Transcript:\n${currentTranscription}\n\nUser Question:`;
+        if (typeof userMessageContent === 'string') {
+            finalUserMessageContent = `${contextPrefix}\n${userMessageContent}`;
+        } else if (Array.isArray(userMessageContent)) {
+            const newContentArray = userMessageContent.map(part => ({...part}));
+            const textPartIndex = newContentArray.findIndex(part => part.type === 'text');
+            if (textPartIndex !== -1) {
+                newContentArray[textPartIndex].text = `${contextPrefix}\n${newContentArray[textPartIndex].text}`;
+            } else {
+                // If no text part (e.g., image only), add context as a new text part
+                newContentArray.unshift({ type: 'text', text: contextPrefix });
+            }
+            finalUserMessageContent = newContentArray;
+        } else {
+            // Handle potentially non-string/non-array content defensively
+            finalUserMessageContent = `${contextPrefix}\n${String(userMessageContent)}`;
+        }
+        console.log("[prepareContentForApi] finalUserMessageContent with transcription:", finalUserMessageContent);
+        contextWasUsed = true;
+        // Do not reset transcriptionContextPending here, reset it in handleSendMessage *after* use
+        // transcriptionContextPending = false;
+        chatInputEl.classList.remove('glow');
     } else {
-        console.log('[Popup] prepareContentForApi - Context WAS NOT used.');
+        console.log("[prepareContentForApi] No context added.");
     }
-
     return { finalContent: finalUserMessageContent, contextWasUsed: contextWasUsed };
 }
 
-// Function to handle sending the chat message
+function showTranscriptionLoadingNotification() {
+    transcriptionLoadingNotificationDiv.style.display = 'flex';
+}
+function hideTranscriptionLoadingNotification() {
+    transcriptionLoadingNotificationDiv.style.display = 'none';
+}
+
 function handleSendMessage() {
     const messageText = chatInputEl.value.trim();
+    let userMessageContent: any; // Renamed from messageContent for clarity
 
-    // Determine content type (text or complex object for vision)
-    let messageContent: any;
+    // Determine base user content (text or image+text)
     if (attachedImageDataUrl && currentSelectedModel === VISION_MODEL_ID) {
-        messageContent = [
-            { type: "text", text: messageText || "Describe this image." }, // Add placeholder if text is empty
+        userMessageContent = [
+            { type: "text", text: messageText || "Describe this image." }, // Use default text if none provided with image
             { type: "image_url", image_url: { url: attachedImageDataUrl } }
         ];
     } else if (messageText) {
-        messageContent = messageText;
+        userMessageContent = messageText;
     } else {
         console.log("No message text or image to send.");
-        return; // Don't send empty messages unless it's an image-only query
+        return; // Exit if nothing to send
     }
 
-    if (!messageContent) return; // Should not happen based on above logic, but check anyway
+    // Prepare the final content, potentially adding context (transcription or selected text)
+    console.log("[handleSendMessage] Calling prepareContentForApi with userMessageContent:", userMessageContent);
+    const { finalContent, contextWasUsed } = prepareContentForApi(userMessageContent);
+    console.log(`[handleSendMessage] Received from prepareContentForApi. finalContent: ${JSON.stringify(finalContent)}, contextWasUsed: ${contextWasUsed}`);
 
-    console.log('[Popup] handleSendMessage - BEFORE prepare - currentSelectedTextContext:', currentSelectedTextContext ? `"${currentSelectedTextContext.substring(0, 50)}..."` : 'null'); // Log context before prepare call
-    // Prepare the final content, potentially adding context
-    const { finalContent, contextWasUsed } = prepareContentForApi(messageContent);
+    // *** Fix: Create the new message object before constructing the API payload ***
+    const newUserMessage = {
+        role: 'user' as const, // Ensure role is typed correctly
+        content: finalContent,
+        contextUsed: contextWasUsed
+    };
 
-    // Display and save the potentially modified user message to history
+    // *** Fix: Construct messages for API *including* the new user message ***
+    const messagesForApi = [
+        ...chatHistory, // Spread existing history
+        { role: newUserMessage.role, content: newUserMessage.content } // Add NEW user message for API call (don't need contextUsed flag for API)
+    ];
+
+    // Update UI and save the *actual* history (including contextUsed flag)
     displayAndSaveUserMessage(finalContent, contextWasUsed);
 
-    // Prepare the full message list for the API using the updated history
-    const messagesForApi = [...chatHistory]; // History now contains the final user message
-
-    // Create placeholder for AI response
-    const assistantMessageDiv = createMessageElement('assistant', '...'); // Use '...' as placeholder
+    // Show placeholder for AI response
+    const assistantMessageDiv = createMessageElement('assistant', '...');
     chatMessagesDiv.appendChild(assistantMessageDiv);
     scrollToBottom();
 
-    // Send message to background for processing
+    // Disable input while waiting
+    sendButton.disabled = true;
+    chatInputEl.disabled = true;
+
+    // Send the correctly constructed message list to the background
     chrome.runtime.sendMessage({
         action: 'sendChatMessage',
         payload: {
             model: currentSelectedModel,
-            // Clean the messages array for the API call, removing the contextUsed flag
-            messages: messagesForApi.map(({ role, content }) => ({ role, content }))
+            messages: messagesForApi // Send the history *with* the new user message
         }
     });
 
-    console.log('[Popup] handleSendMessage - Message sent to background. Payload:', JSON.stringify(messagesForApi.map(({ role, content }) => ({ role, content: typeof content === 'string' ? `${content.substring(0,100)}...` : '[Object/Array]' })))); // Log sent payload
-}
+    // Clear pending transcription context if it was used
+    if (contextWasUsed && transcriptionContextPending) {
+        transcriptionContextPending = false; // Ensure this is reset
+        currentTranscription = null; // Clear the stored transcription after use
+    }
 
-// Start initialization when the DOM is ready
-document.addEventListener('DOMContentLoaded', initializePopup);
+     // Clear attached image data after sending if it was used
+     if (attachedImageDataUrl) {
+         attachedImageDataUrl = null;
+         imagePreviewEl.src = '';
+         hideElement(imagePreviewAreaDiv);
+     }
+}

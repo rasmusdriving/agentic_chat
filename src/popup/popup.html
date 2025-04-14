@@ -28,6 +28,24 @@
     </div>
   </div>
 
+  <!-- Transcription notification bar (hidden by default) -->
+  <div id="transcription-notification" style="display: none;">
+    <span id="transcription-icon" title="Transcription available">
+      <!-- Muted document SVG icon -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" fill="#222" stroke="#aaa"/><path d="M9 7h6M9 11h6M9 15h2" stroke="#aaa"/></svg>
+    </span>
+    <span id="transcription-label">Transcription available</span>
+    <button id="attach-transcription-btn" title="Attach to next message">Attach</button>
+    <button id="copy-transcription-btn" title="Copy transcription">Copy</button>
+    <button id="dismiss-transcription-btn" title="Dismiss">✕</button>
+  </div>
+
+  <!-- Transcription loading notification (hidden by default) -->
+  <div id="transcription-loading-notification" style="display: none; align-items: center; gap: 8px; margin-bottom: 8px;">
+    <span class="spinner" style="width:18px;height:18px;display:inline-block;"></span>
+    <span>Transcribing audio…</span>
+  </div>
+
   <div id="input-area">
     <div id="image-preview-area" style="display: none;">
         <img id="image-preview" alt="Image Preview" />
@@ -35,29 +53,6 @@
     </div>
     <textarea id="chat-input" rows="3" placeholder="Type your message..."></textarea>
     <button id="send-button" title="Send Message (Cmd/Ctrl+Enter)">&#x27A4;</button>
-  </div>
-
-  <div id="transcription-container" style="display: none;">
-      <h2>Transcription</h2>
-      <div id="transcription-request" style="display: none;">
-          <p>Transcribe <strong id="filename"></strong>?</p>
-          <button id="confirm-transcribe">Yes</button>
-          <button id="cancel-transcribe">No</button>
-      </div>
-      <div id="transcription-result" style="display: none;">
-          <details id="transcription-details">
-              <summary>Show Transcription</summary>
-              <pre id="transcription-text"></pre>
-          </details>
-          <div id="transcription-actions">
-              <button id="copy-button">Copy</button>
-              <button id="summary-button">Summary</button>
-              <button id="email-button">Email</button>
-          </div>
-      </div>
-      <div id="loading-indicator" style="display: none;">
-          <p>Transcription in progress...</p>
-      </div>
   </div>
 
   <div id="status-messages">

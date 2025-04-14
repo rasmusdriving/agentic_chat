@@ -221,9 +221,12 @@ async function streamGroqChatApi(
         'Content-Type': 'application/json'
     };
 
+    // *** Fix: Create a new array containing only role and content for the API ***
+    const messagesForApi = messages.map(({ role, content }) => ({ role, content }));
+
     const body = JSON.stringify({
         model: model,
-        messages: messages,
+        messages: messagesForApi, // Use the cleaned array
         stream: true // Enable streaming
     });
 
@@ -231,7 +234,7 @@ async function streamGroqChatApi(
 
     try {
         // Log the messages being sent to the API
-        console.log('[Background] Streaming Groq Chat API Call - Messages Payload:', JSON.stringify(messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? `${m.content.substring(0, 100)}...` : '[Object/Array]' }))));
+        console.log('[Background] Streaming Groq Chat API Call - Messages Payload:', JSON.stringify(messagesForApi.map(m => ({ role: m.role, content: typeof m.content === 'string' ? `${m.content.substring(0, 100)}...` : '[Object/Array]' }))));
 
         const response = await fetch(GROQ_CHAT_API_URL, {
             method: 'POST',
